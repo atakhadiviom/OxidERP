@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{Html, IntoResponse},
     routing::{get, post, put},
     Json, Router,
@@ -69,6 +69,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/", get(index))
+        .route("/logo.svg", get(logo))
         .route("/api/health", get(health))
         .route("/api/auth/login", post(login))
         .route("/api/auth/me", get(me))
@@ -102,6 +103,10 @@ async fn run_healthcheck() -> ! {
 
 async fn index() -> Html<&'static str> {
     Html(include_str!("../../../frontend/index.html"))
+}
+
+async fn logo() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "image/svg+xml")], include_str!("../../../frontend/logo.svg"))
 }
 
 async fn health(State(state): State<AppState>) -> Json<Value> {
