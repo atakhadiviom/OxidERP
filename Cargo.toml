@@ -6,6 +6,7 @@ members = [
     "crates/modules/sales",
     "crates/modules/inventory",
     "crates/modules/accounting",
+    "crates/frontend",
     "crates/cli"
 ]
 resolver = "2"

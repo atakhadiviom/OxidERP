@@ -69,6 +69,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/", get(index))
+        .route("/rust", get(rust_index))
         .route("/logo.svg", get(logo))
         .route("/api/health", get(health))
         .route("/api/auth/login", post(login))
@@ -103,6 +104,10 @@ async fn run_healthcheck() -> ! {
 
 async fn index() -> Html<&'static str> {
     Html(include_str!("../../../frontend/index.html"))
+}
+
+async fn rust_index() -> Html<&'static str> {
+    Html(include_str!("../../../frontend/rust-index.html"))
 }
 
 async fn logo() -> impl IntoResponse {
