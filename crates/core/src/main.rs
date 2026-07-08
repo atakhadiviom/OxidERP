@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
-use std::{collections::HashMap, env, net::SocketAddr};
+use std::{collections::HashMap, env, net::SocketAddr, process};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use uuid::Uuid;
 
@@ -45,6 +45,10 @@ struct LoginRequest {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    if env::args().any(|arg| arg == "--healthcheck") {
+        run_healthcheck().await;
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
@@ -80,11 +84,20 @@ async fn main() -> anyhow::Result<()> {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    let addr: SocketAddr = "0.0.0.0:8080".parse()?;
+    let bind = env::var("OXIDERP_BIND").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
+    let addr: SocketAddr = bind.parse()?;
     tracing::info!(%addr, "OxidERP core server started");
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+async fn run_healthcheck() -> ! {
+    let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://oxiderp:oxiderp_dev_password@127.0.0.1:5432/oxiderp".to_string());
+    match PgPoolOptions::new().max_connections(1).connect(&database_url).await {
+        Ok(db) if sqlx::query("SELECT 1").fetch_one(&db).await.is_ok() => process::exit(0),
+        _ => process::exit(1),
+    }
 }
 
 async fn index() -> Html<&'static str> {

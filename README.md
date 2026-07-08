@@ -30,6 +30,22 @@ Open:
 http://localhost:8080
 ```
 
+Demo login:
+
+```text
+admin@demo.com
+admin123
+```
+
+## Run with Docker Compose
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+```
+
+See `docs/deployment.md` for deployment notes.
+
 ## Workspace Layout
 
 ```text
