@@ -1,0 +1,32 @@
+[workspace]
+members = [
+    "crates/sdk",
+    "crates/core",
+    "crates/modules/crm",
+    "crates/modules/sales",
+    "crates/modules/inventory",
+    "crates/modules/accounting",
+    "crates/cli"
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+authors = ["OxidERP Contributors"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/atakhadiviom/OxidERP"
+
+[workspace.dependencies]
+anyhow = "1"
+async-trait = "0.1"
+axum = "0.7"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "fs", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["serde", "v4"] }

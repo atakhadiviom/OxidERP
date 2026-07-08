@@ -10,9 +10,9 @@ __pycache__/
 .venv/
 venv/
 
-# Build outputs
-dist/
-build/
+# Rust build output
+/target/
+Cargo.lock
 
 # OS/editor files
 .DS_Store

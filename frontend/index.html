@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OxidERP</title>
+  <style>
+    :root { --bg:#f5f7fb; --panel:#fff; --text:#172033; --muted:#667085; --brand:#5b5bd6; --line:#e5e7eb; --good:#16a34a; }
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Arial;color:var(--text)}
+    .app{display:grid;grid-template-columns:270px 1fr;min-height:100vh}.side{background:#111827;color:#fff;padding:22px;position:sticky;top:0;height:100vh}.brand{font-weight:800;font-size:24px;margin-bottom:6px}.tag{color:#c7d2fe;font-size:13px;margin-bottom:24px}.nav{display:grid;gap:8px}.nav button{border:0;border-radius:12px;padding:13px 14px;text-align:left;background:transparent;color:#d1d5db;cursor:pointer;font-size:15px}.nav button.active,.nav button:hover{background:#293146;color:#fff}.main{padding:28px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:22px}.pill{background:#eef2ff;color:#3730a3;padding:8px 12px;border-radius:999px;font-size:13px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:0 8px 26px rgba(16,24,40,.04)}.module{cursor:pointer;transition:.15s}.module:hover{transform:translateY(-2px);border-color:#c7d2fe}.icon{font-size:32px}.muted{color:var(--muted)}h1,h2,h3{margin:.2rem 0 .8rem}.toolbar{display:flex;gap:10px;align-items:center;margin:16px 0}.btn{border:0;background:var(--brand);color:white;border-radius:12px;padding:10px 14px;cursor:pointer;font-weight:700}.btn.secondary{background:#eef2ff;color:#3730a3}.table{width:100%;border-collapse:collapse}.table th,.table td{padding:12px;border-bottom:1px solid var(--line);text-align:left}.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.field{display:grid;gap:6px}.field label{font-size:13px;color:#344054;font-weight:700}.field input,.field select{border:1px solid var(--line);border-radius:12px;padding:11px;background:#fff}.hero{background:linear-gradient(135deg,#4f46e5,#06b6d4);color:white;border-radius:24px;padding:26px;margin-bottom:18px}.hero p{max-width:760px;color:#e0f2fe}.status{color:var(--good);font-weight:800}.empty{padding:24px;text-align:center;color:var(--muted)}
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand">OxidERP</div>
+    <div class="tag">Modular Rust ERP • Odoo-style apps</div>
+    <div class="nav" id="nav"></div>
+  </aside>
+  <main class="main">
+    <div class="top"><div><h1 id="title">Dashboard</h1><div class="muted" id="subtitle">Loading workspace...</div></div><div class="pill">Demo tenant: <b id="tenant">...</b></div></div>
+    <section id="content"></section>
+  </main>
+</div>
+<script>
+const state = { modules: [], current: null, records: {}, tenant: null };
+const api = async (url, options={}) => (await fetch(url, {headers:{'content-type':'application/json'}, ...options})).json();
+const nav = document.getElementById('nav'), content = document.getElementById('content');
+function setTitle(t,s){document.getElementById('title').textContent=t;document.getElementById('subtitle').textContent=s||''}
+function drawNav(){ nav.innerHTML = `<button class="${!state.current?'active':''}" onclick="dashboard()">🏠 Dashboard</button>` + state.modules.map(m=>`<button class="${state.current===m.name?'active':''}" onclick="openModule('${m.name}')">${m.icon} ${m.title}</button>`).join('') + `<button onclick="events()">⚡ Events</button>`; }
+async function load(){ const data = await api('/api/modules'); state.modules=data.modules; state.tenant=data.tenant; document.getElementById('tenant').textContent=data.tenant.tenant_slug; dashboard(); }
+function dashboard(){ state.current=null; drawNav(); setTitle('Dashboard','Installable business apps separated like Odoo modules.'); content.innerHTML=`<div class="hero"><h2>Welcome to OxidERP</h2><p>A user-friendly, modular ERP foundation. Each app owns its entities, views, actions, permissions and events while sharing one secure tenant-aware core.</p></div><div class="grid">${state.modules.map(m=>`<div class="card module" onclick="openModule('${m.name}')"><div class="icon">${m.icon}</div><h3>${m.title}</h3><p class="muted">${m.summary}</p><div class="status">Enabled • v${m.version}</div></div>`).join('')}</div>`; }
+async function openModule(name){ state.current=name; drawNav(); const m=state.modules.find(x=>x.name===name); setTitle(`${m.icon} ${m.title}`, m.summary); const entity=m.entities[0]; const key=`${name}.${entity.name}`; const data=await api(`/api/entities/${name}/${entity.name}`); state.records[key]=data.records; content.innerHTML=`<div class="card"><h2>${entity.title}</h2><p class="muted">${entity.description}</p><div class="toolbar"><button class="btn" onclick="showForm('${name}','${entity.name}')">+ Create ${entity.title}</button><button class="btn secondary" onclick="openModule('${name}')">Refresh</button></div>${table(m,entity,data.records)}</div>`; }
+function table(m,e,rows){ if(!rows.length) return `<div class="empty">No ${e.title.toLowerCase()} records yet. Click create to add the first one.</div>`; return `<table class="table"><thead><tr>${e.fields.slice(0,5).map(f=>`<th>${f.label}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${e.fields.slice(0,5).map(f=>`<td>${r.data[f.name]??''}</td>`).join('')}</tr>`).join('')}</tbody></table>`; }
+function showForm(module, entityName){ const m=state.modules.find(x=>x.name===module), e=m.entities.find(x=>x.name===entityName); setTitle(`Create ${e.title}`, `Module: ${m.title}`); content.innerHTML=`<div class="card"><div class="form">${e.fields.map(f=>fieldHtml(f)).join('')}</div><div class="toolbar"><button class="btn" onclick="saveEntity('${module}','${entityName}')">Save</button><button class="btn secondary" onclick="openModule('${module}')">Cancel</button></div></div>`; }
+function fieldHtml(f){ const req=f.required?'required':''; if(f.field_type==='select') return `<div class="field"><label>${f.label}</label><select id="f_${f.name}" ${req}>${f.options.map(o=>`<option value="${o}">${o}</option>`).join('')}</select></div>`; return `<div class="field"><label>${f.label}</label><input id="f_${f.name}" ${req} type="${f.field_type==='money'||f.field_type==='number'?'number':f.field_type==='date'?'date':'text'}" placeholder="${f.label}" /></div>`; }
+async function saveEntity(module, entityName){ const m=state.modules.find(x=>x.name===module), e=m.entities.find(x=>x.name===entityName); const data={}; e.fields.forEach(f=>data[f.name]=document.getElementById('f_'+f.name).value); await api(`/api/entities/${module}/${entityName}`, {method:'POST', body:JSON.stringify({data})}); openModule(module); }
+async function events(){ state.current='events'; drawNav(); setTitle('Event Bus','Module actions and entity events for decoupled workflows.'); const data=await api('/api/events'); content.innerHTML=`<div class="card"><h2>Recent Events</h2>${data.events.length?`<table class="table"><thead><tr><th>Topic</th><th>Module</th><th>Created</th></tr></thead><tbody>${data.events.map(e=>`<tr><td>${e.topic}</td><td>${e.module_name}</td><td>${new Date(e.created_at).toLocaleString()}</td></tr>`).join('')}</tbody></table>`:`<div class="empty">No events yet.</div>`}</div>`; }
+load().catch(e=>{content.innerHTML='<pre>'+e.stack+'</pre>'});
+</script>
+</body>
+</html>
