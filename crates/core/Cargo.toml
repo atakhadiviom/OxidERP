@@ -12,6 +12,8 @@ chrono.workspace = true
 oxiderp-sdk = { path = "../sdk" }
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"] }
 tokio.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
