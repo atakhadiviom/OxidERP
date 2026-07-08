@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse},
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use chrono::{DateTime, Utc};
@@ -73,6 +73,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/modules/:name/install", post(install_module))
         .route("/api/modules/:name/uninstall", post(uninstall_module))
         .route("/api/entities/:module/:entity", get(list_entities).post(create_entity))
+        .route("/api/entities/:module/:entity/:id", put(update_entity).delete(delete_entity))
         .route("/api/events", get(list_events))
         .route("/api/actions/:module/:action", post(run_action))
         .layer(CorsLayer::permissive())
@@ -189,6 +190,7 @@ async fn list_entities(Path((module, entity)): Path<(String, String)>, State(sta
 
 async fn create_entity(Path((module, entity)): Path<(String, String)>, State(state): State<AppState>, headers: HeaderMap, Json(req): Json<CreateEntityRequest>) -> impl IntoResponse {
     if let Err(resp) = require_auth(&state.db, &headers).await { return resp; }
+    if let Some(resp) = validate_entity_payload(&state, &module, &entity, &req.data) { return resp; }
     let tenant = demo_tenant(&state.db).await;
     let enabled = enabled_modules(&state.db).await.unwrap_or_default();
     if !enabled.contains(&module) { return (StatusCode::BAD_REQUEST, Json(json!({"error":"module is not installed"}))).into_response(); }
@@ -204,6 +206,70 @@ async fn create_entity(Path((module, entity)): Path<(String, String)>, State(sta
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response(),
     }
+}
+
+async fn update_entity(Path((module, entity, id)): Path<(String, String, Uuid)>, State(state): State<AppState>, headers: HeaderMap, Json(req): Json<CreateEntityRequest>) -> impl IntoResponse {
+    if let Err(resp) = require_auth(&state.db, &headers).await { return resp; }
+    if let Some(resp) = validate_entity_payload(&state, &module, &entity, &req.data) { return resp; }
+    let tenant = demo_tenant(&state.db).await;
+    let now = Utc::now();
+    let rec = sqlx::query("UPDATE entities SET data=$1, updated_at=$2 WHERE tenant_id=$3 AND module_name=$4 AND entity_type=$5 AND id=$6 RETURNING id, tenant_id, module_name, entity_type, data, created_at, updated_at")
+        .bind(req.data).bind(now).bind(tenant.tenant_id).bind(&module).bind(&entity).bind(id).fetch_optional(&state.db).await;
+    match rec {
+        Ok(Some(r)) => {
+            let record = EntityRecord { id: r.get("id"), tenant_id: r.get("tenant_id"), module_name: r.get("module_name"), entity_type: r.get("entity_type"), data: r.get("data"), created_at: r.get("created_at"), updated_at: r.get("updated_at") };
+            add_event(&state.db, tenant.tenant_id, format!("{module}.{entity}.updated"), module, json!({"entity_id": record.id, "entity_type": entity})).await;
+            (StatusCode::OK, Json(json!(record))).into_response()
+        }
+        Ok(None) => (StatusCode::NOT_FOUND, Json(json!({"error":"record not found"}))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response(),
+    }
+}
+
+async fn delete_entity(Path((module, entity, id)): Path<(String, String, Uuid)>, State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(resp) = require_auth(&state.db, &headers).await { return resp; }
+    let tenant = demo_tenant(&state.db).await;
+    match sqlx::query("DELETE FROM entities WHERE tenant_id=$1 AND module_name=$2 AND entity_type=$3 AND id=$4")
+        .bind(tenant.tenant_id).bind(&module).bind(&entity).bind(id).execute(&state.db).await {
+        Ok(done) if done.rows_affected() > 0 => {
+            add_event(&state.db, tenant.tenant_id, format!("{module}.{entity}.deleted"), module, json!({"entity_id": id, "entity_type": entity})).await;
+            (StatusCode::OK, Json(json!({"ok":true,"deleted":id}))).into_response()
+        }
+        Ok(_) => (StatusCode::NOT_FOUND, Json(json!({"error":"record not found"}))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response(),
+    }
+}
+
+fn validate_entity_payload(state: &AppState, module: &str, entity: &str, data: &Value) -> Option<axum::response::Response> {
+    let manifest = match state.modules.get(module) {
+        Some(m) => m,
+        None => return Some((StatusCode::NOT_FOUND, Json(json!({"error":"module not found"}))).into_response()),
+    };
+    let Some(def) = manifest.entities.iter().find(|e| e.name == entity) else {
+        return Some((StatusCode::NOT_FOUND, Json(json!({"error":"entity not found"}))).into_response());
+    };
+    let mut errors = Vec::new();
+    for f in &def.fields {
+        let value = data.get(&f.name).cloned().unwrap_or(Value::Null);
+        if f.required && (value.is_null() || value.as_str().map(|s| s.trim().is_empty()).unwrap_or(false)) {
+            errors.push(json!({"field": f.name, "message": format!("{} is required", f.label)}));
+        }
+        if matches!(f.field_type, FieldType::Select) && !value.is_null() {
+            if let Some(s) = value.as_str() {
+                if !f.options.is_empty() && !f.options.contains(&s.to_string()) {
+                    errors.push(json!({"field": f.name, "message": format!("{} must be one of: {}", f.label, f.options.join(", "))}));
+                }
+            }
+        }
+    }
+    if module == "accounting" && entity == "journal_entry" {
+        let debit = data.get("debit").and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok()).or_else(|| data.get("debit").and_then(|v| v.as_f64())).unwrap_or(0.0);
+        let credit = data.get("credit").and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok()).or_else(|| data.get("credit").and_then(|v| v.as_f64())).unwrap_or(0.0);
+        if (debit - credit).abs() > 0.001 {
+            errors.push(json!({"field":"credit", "message":"Accounting entries must balance: debit must equal credit"}));
+        }
+    }
+    if errors.is_empty() { None } else { Some((StatusCode::BAD_REQUEST, Json(json!({"errors": errors}))).into_response()) }
 }
 
 async fn list_events(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
